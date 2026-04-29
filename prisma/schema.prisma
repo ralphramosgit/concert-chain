@@ -1,0 +1,28 @@
+// Concert Chain - Prisma schema
+// Only auth/users live in the DB for now. Events & tickets are kept in a
+// mock client-side store and will later be backed by a Solidity contract.
+
+generator client {
+    provider = "prisma-client-js"
+}
+
+datasource db {
+    provider = "postgresql"
+    url      = env("DATABASE_URL")
+}
+
+enum Role {
+    FAN
+    EVENT_MANAGER
+}
+
+model User {
+    id            String   @id @default(cuid())
+    email         String   @unique
+    name          String
+    passwordHash  String
+    role          Role     @default(FAN)
+    walletAddress String?  @unique // optional, for future on-chain linkage
+    createdAt     DateTime @default(now())
+    updatedAt     DateTime @updatedAt
+}

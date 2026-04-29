@@ -1,26 +1,287 @@
 @import "tailwindcss";
 
+/* ============================================================
+   Concert Chain — Neon Purple / Black Theme
+   ============================================================ */
+
 :root {
-  --background: #ffffff;
-  --foreground: #171717;
+  --cc-bg: #07050d;
+  --cc-bg-soft: #0d0a1a;
+  --cc-surface: #14102a;
+  --cc-surface-2: #1c1638;
+  --cc-border: #2a1f55;
+  --cc-border-strong: #3b2a7a;
+  --cc-text: #ece9ff;
+  --cc-text-muted: #a79ed1;
+  --cc-text-dim: #6e6593;
+
+  --cc-neon: #b026ff;
+  --cc-neon-soft: #c869ff;
+  --cc-neon-strong: #e040ff;
+  --cc-neon-glow:
+    0 0 12px rgba(176, 38, 255, 0.55), 0 0 32px rgba(176, 38, 255, 0.25);
+  --cc-neon-glow-strong:
+    0 0 18px rgba(224, 64, 255, 0.85), 0 0 48px rgba(176, 38, 255, 0.45);
+
+  --cc-danger: #ff4d8a;
+  --cc-success: #38f5b1;
 }
 
 @theme inline {
-  --color-background: var(--background);
-  --color-foreground: var(--foreground);
+  --color-background: var(--cc-bg);
+  --color-foreground: var(--cc-text);
+  --color-neon: var(--cc-neon);
+  --color-neon-strong: var(--cc-neon-strong);
   --font-sans: var(--font-geist-sans);
   --font-mono: var(--font-geist-mono);
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
-  }
+html,
+body {
+  background: var(--cc-bg);
+  color: var(--cc-text);
 }
 
 body {
-  background: var(--background);
-  color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+  font-family: var(--font-geist-sans), Arial, Helvetica, sans-serif;
+  background-image:
+    radial-gradient(
+      ellipse 80% 60% at 20% 0%,
+      rgba(176, 38, 255, 0.18),
+      transparent 60%
+    ),
+    radial-gradient(
+      ellipse 60% 50% at 100% 30%,
+      rgba(120, 30, 220, 0.12),
+      transparent 60%
+    ),
+    radial-gradient(
+      ellipse 60% 60% at 50% 110%,
+      rgba(80, 20, 160, 0.18),
+      transparent 60%
+    );
+  background-attachment: fixed;
+}
+
+/* ----- Reusable component classes ----- */
+
+.cc-surface {
+  background: linear-gradient(
+    160deg,
+    var(--cc-surface) 0%,
+    var(--cc-bg-soft) 100%
+  );
+  border: 1px solid var(--cc-border);
+  border-radius: 14px;
+}
+
+.cc-surface-glow {
+  background: linear-gradient(
+    160deg,
+    var(--cc-surface) 0%,
+    var(--cc-bg-soft) 100%
+  );
+  border: 1px solid var(--cc-border-strong);
+  border-radius: 14px;
+  box-shadow:
+    0 0 0 1px rgba(176, 38, 255, 0.08),
+    0 8px 30px rgba(0, 0, 0, 0.45);
+  transition:
+    border-color 0.15s,
+    box-shadow 0.15s,
+    transform 0.15s;
+}
+
+.cc-surface-glow:hover {
+  border-color: var(--cc-neon);
+  box-shadow: var(--cc-neon-glow);
+}
+
+.cc-input {
+  width: 100%;
+  background: rgba(7, 5, 13, 0.6);
+  border: 1px solid var(--cc-border);
+  border-radius: 10px;
+  padding: 0.65rem 0.9rem;
+  color: var(--cc-text);
+  font-size: 0.95rem;
+  transition:
+    border-color 0.15s,
+    box-shadow 0.15s,
+    background 0.15s;
+}
+
+.cc-input::placeholder {
+  color: var(--cc-text-dim);
+}
+
+.cc-input:focus {
+  outline: none;
+  border-color: var(--cc-neon);
+  box-shadow: 0 0 0 3px rgba(176, 38, 255, 0.2);
+  background: rgba(20, 16, 42, 0.8);
+}
+
+.cc-label {
+  display: block;
+  font-size: 0.78rem;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--cc-text-muted);
+  margin-bottom: 0.4rem;
+  font-weight: 600;
+}
+
+.cc-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+  padding: 0.6rem 1.1rem;
+  border-radius: 10px;
+  font-weight: 600;
+  font-size: 0.92rem;
+  border: 1px solid transparent;
+  cursor: pointer;
+  transition:
+    transform 0.08s,
+    box-shadow 0.15s,
+    background 0.15s,
+    border-color 0.15s,
+    color 0.15s;
+  text-decoration: none;
+  white-space: nowrap;
+}
+
+.cc-btn:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+.cc-btn-primary {
+  background: linear-gradient(
+    135deg,
+    var(--cc-neon) 0%,
+    var(--cc-neon-strong) 100%
+  );
+  color: #0a0613;
+  border-color: var(--cc-neon-strong);
+  box-shadow: var(--cc-neon-glow);
+}
+
+.cc-btn-primary:hover:not(:disabled) {
+  box-shadow: var(--cc-neon-glow-strong);
+  transform: translateY(-1px);
+}
+
+.cc-btn-ghost {
+  background: transparent;
+  color: var(--cc-text);
+  border-color: var(--cc-border-strong);
+}
+
+.cc-btn-ghost:hover:not(:disabled) {
+  border-color: var(--cc-neon);
+  color: var(--cc-neon-soft);
+  box-shadow: var(--cc-neon-glow);
+}
+
+.cc-btn-danger {
+  background: transparent;
+  color: var(--cc-danger);
+  border-color: rgba(255, 77, 138, 0.35);
+}
+
+.cc-btn-danger:hover:not(:disabled) {
+  background: rgba(255, 77, 138, 0.1);
+  border-color: var(--cc-danger);
+}
+
+.cc-error {
+  color: var(--cc-danger);
+  font-size: 0.8rem;
+  margin-top: 0.35rem;
+}
+
+.cc-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  padding: 0.18rem 0.55rem;
+  font-size: 0.7rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  border-radius: 999px;
+  border: 1px solid var(--cc-border-strong);
+  background: rgba(176, 38, 255, 0.1);
+  color: var(--cc-neon-soft);
+}
+
+.cc-badge-success {
+  border-color: rgba(56, 245, 177, 0.35);
+  background: rgba(56, 245, 177, 0.08);
+  color: var(--cc-success);
+}
+
+.cc-badge-muted {
+  border-color: var(--cc-border);
+  background: transparent;
+  color: var(--cc-text-muted);
+}
+
+.cc-divider {
+  height: 1px;
+  background: linear-gradient(
+    90deg,
+    transparent,
+    var(--cc-border-strong),
+    transparent
+  );
+  margin: 1.5rem 0;
+}
+
+.cc-neon-text {
+  color: var(--cc-neon-soft);
+  text-shadow: 0 0 8px rgba(176, 38, 255, 0.55);
+}
+
+.cc-link {
+  color: var(--cc-neon-soft);
+  text-decoration: none;
+  font-weight: 500;
+}
+
+.cc-link:hover {
+  color: var(--cc-neon-strong);
+  text-shadow: 0 0 8px rgba(224, 64, 255, 0.7);
+}
+
+/* Modal overlay */
+.cc-modal-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(7, 5, 13, 0.7);
+  backdrop-filter: blur(6px);
+  z-index: 50;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 1rem;
+}
+
+/* Scrollbar */
+::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+::-webkit-scrollbar-track {
+  background: var(--cc-bg);
+}
+::-webkit-scrollbar-thumb {
+  background: var(--cc-border-strong);
+  border-radius: 999px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: var(--cc-neon);
 }
