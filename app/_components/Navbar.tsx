@@ -8,6 +8,7 @@ import {
 } from "lucide-react";
 import type { SessionPayload } from "@/lib/definitions";
 import { signoutAction } from "@/lib/auth-actions";
+import { WalletButton } from "./WalletButton";
 
 export function Navbar({ session }: { session: SessionPayload | null }) {
   const isManager = session?.role === "EVENT_MANAGER";
@@ -60,6 +61,7 @@ export function Navbar({ session }: { session: SessionPayload | null }) {
             </Link>
           )}
 
+          <WalletButton />
           {session ? (
             <>
               <div className="hidden md:flex items-center gap-2 px-3 py-1.5 rounded-lg border border-[var(--cc-border)]">

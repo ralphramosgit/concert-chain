@@ -1,0 +1,67 @@
+[
+  {
+    "type": "function",
+    "name": "listTicket",
+    "inputs": [
+      { "name": "tokenId", "type": "uint256" },
+      { "name": "price", "type": "uint256" }
+    ],
+    "outputs": [],
+    "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
+    "name": "cancelListing",
+    "inputs": [{ "name": "tokenId", "type": "uint256" }],
+    "outputs": [],
+    "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
+    "name": "buyTicket",
+    "inputs": [{ "name": "tokenId", "type": "uint256" }],
+    "outputs": [],
+    "stateMutability": "payable"
+  },
+  {
+    "type": "function",
+    "name": "updatePrice",
+    "inputs": [
+      { "name": "tokenId", "type": "uint256" },
+      { "name": "newPrice", "type": "uint256" }
+    ],
+    "outputs": [],
+    "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
+    "name": "getListing",
+    "inputs": [{ "name": "tokenId", "type": "uint256" }],
+    "outputs": [
+      { "name": "seller", "type": "address" },
+      { "name": "price", "type": "uint256" },
+      { "name": "isListed", "type": "bool" }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "event",
+    "name": "TicketListed",
+    "inputs": [
+      { "name": "tokenId", "type": "uint256", "indexed": true },
+      { "name": "seller", "type": "address", "indexed": true },
+      { "name": "price", "type": "uint256", "indexed": false }
+    ],
+    "anonymous": false
+  },
+  {
+    "type": "event",
+    "name": "TicketSold",
+    "inputs": [
+      { "name": "tokenId", "type": "uint256", "indexed": true },
+      { "name": "buyer", "type": "address", "indexed": true },
+      { "name": "price", "type": "uint256", "indexed": false }
+    ],
+    "anonymous": false
+  }
+]

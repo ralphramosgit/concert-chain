@@ -7,6 +7,8 @@ import {
   useState,
   type ReactNode,
 } from "react";
+import { useAccount } from "wagmi";
+import { useContractStore } from "@/lib/useContractStore";
 
 export type Event = {
   id: string;
@@ -16,6 +18,10 @@ export type Event = {
   managerId: string;
   managerName: string;
   createdAt: string;
+  // On-chain extras (undefined in mock mode)
+  initialPrice?: number; // in ETH
+  totalTickets?: number;
+  ticketsMinted?: number;
 };
 
 export type Ticket = {
@@ -123,6 +129,9 @@ function seedStore(): Store {
 }
 
 export function StoreProvider({ children }: { children: ReactNode }) {
+  const { isConnected, address } = useAccount();
+  const chain = useContractStore();
+
   const [store, setStore] = useState<Store>(defaultStore);
   const [hydrated, setHydrated] = useState(false);
 
@@ -225,8 +234,70 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     },
   };
 
+  // ── Chain value: used when MetaMask is connected ─────────────────
+  // Events come from the contract. Tickets are represented as minimal
+  // Ticket objects built from owned token IDs (on-chain ownership is
+  // the source of truth; seat info / price are fetched per-page).
+  const chainValue: Ctx = {
+    events: chain.events,
+    tickets: chain.myTokenIds.map((id) => ({
+      id: id.toString(),
+      eventId: "0", // resolved per-page via contract reads
+      ownerId: address?.toLowerCase() ?? "",
+      ownerName: address ? address.slice(0, 6) + "…" + address.slice(-4) : "",
+      seatInfo: `Token #${id}`,
+      price: 0,
+      originalPrice: 0,
+      forSale: false,
+      isUsed: false,
+      createdAt: new Date().toISOString(),
+    })),
+    ticketsForEvent: (eventId) =>
+      chain.myTokenIds.map((id) => ({
+        id: id.toString(),
+        eventId,
+        ownerId: address?.toLowerCase() ?? "",
+        ownerName: address ? address.slice(0, 6) + "…" + address.slice(-4) : "",
+        seatInfo: `Token #${id}`,
+        price: 0,
+        originalPrice: 0,
+        forSale: false,
+        isUsed: false,
+        createdAt: new Date().toISOString(),
+      })),
+    ticketsForSale: () => [], // resolved per-page in EventDetailPage
+    ticketsOwnedBy: () =>
+      chain.myTokenIds.map((id) => ({
+        id: id.toString(),
+        eventId: "0",
+        ownerId: address?.toLowerCase() ?? "",
+        ownerName: address ? address.slice(0, 6) + "…" + address.slice(-4) : "",
+        seatInfo: `Token #${id}`,
+        price: 0,
+        originalPrice: 0,
+        forSale: false,
+        isUsed: false,
+        createdAt: new Date().toISOString(),
+      })),
+    createEvent: () => {
+      throw new Error("Use chain.createEventOnChain() directly");
+    },
+    buyTicket: () => {
+      throw new Error("Use chain.buyPrimaryTicket() directly");
+    },
+    updateTicket: () => {
+      throw new Error(
+        "Use chain.listTicket() or chain.cancelListing() directly",
+      );
+    },
+  };
+
+  const activeValue = isConnected ? chainValue : value;
+
   return (
-    <StoreContext.Provider value={value}>{children}</StoreContext.Provider>
+    <StoreContext.Provider value={activeValue}>
+      {children}
+    </StoreContext.Provider>
   );
 }
 
