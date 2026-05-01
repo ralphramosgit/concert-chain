@@ -129,7 +129,7 @@ function seedStore(): Store {
 }
 
 export function StoreProvider({ children }: { children: ReactNode }) {
-  const { isConnected, address } = useAccount();
+  const { isConnected } = useAccount();
   const chain = useContractStore();
 
   const [store, setStore] = useState<Store>(defaultStore);
@@ -235,50 +235,19 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   };
 
   // ── Chain value: used when MetaMask is connected ─────────────────
-  // Events come from the contract. Tickets are represented as minimal
-  // Ticket objects built from owned token IDs (on-chain ownership is
-  // the source of truth; seat info / price are fetched per-page).
+  // Events come from the contract. Tickets are the user's owned NFTs
+  // enriched with their on-chain eventId + marketplace listing data
+  // (see useContractStore.myChainTickets).
   const chainValue: Ctx = {
     events: chain.events,
-    tickets: chain.myTokenIds.map((id) => ({
-      id: id.toString(),
-      eventId: "0", // resolved per-page via contract reads
-      ownerId: address?.toLowerCase() ?? "",
-      ownerName: address ? address.slice(0, 6) + "…" + address.slice(-4) : "",
-      seatInfo: `Token #${id}`,
-      price: 0,
-      originalPrice: 0,
-      forSale: false,
-      isUsed: false,
-      createdAt: new Date().toISOString(),
-    })),
+    tickets: chain.myChainTickets,
     ticketsForEvent: (eventId) =>
-      chain.myTokenIds.map((id) => ({
-        id: id.toString(),
-        eventId,
-        ownerId: address?.toLowerCase() ?? "",
-        ownerName: address ? address.slice(0, 6) + "…" + address.slice(-4) : "",
-        seatInfo: `Token #${id}`,
-        price: 0,
-        originalPrice: 0,
-        forSale: false,
-        isUsed: false,
-        createdAt: new Date().toISOString(),
-      })),
-    ticketsForSale: () => [], // resolved per-page in EventDetailPage
-    ticketsOwnedBy: () =>
-      chain.myTokenIds.map((id) => ({
-        id: id.toString(),
-        eventId: "0",
-        ownerId: address?.toLowerCase() ?? "",
-        ownerName: address ? address.slice(0, 6) + "…" + address.slice(-4) : "",
-        seatInfo: `Token #${id}`,
-        price: 0,
-        originalPrice: 0,
-        forSale: false,
-        isUsed: false,
-        createdAt: new Date().toISOString(),
-      })),
+      chain.myChainTickets.filter((t) => t.eventId === eventId),
+    ticketsForSale: (eventId) =>
+      chain.myChainTickets.filter(
+        (t) => t.eventId === eventId && t.forSale && !t.isUsed,
+      ),
+    ticketsOwnedBy: () => chain.myChainTickets,
     createEvent: () => {
       throw new Error("Use chain.createEventOnChain() directly");
     },

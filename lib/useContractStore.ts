@@ -9,10 +9,12 @@
 import { useCallback } from "react";
 import {
   useReadContract,
+  useReadContracts,
   useWriteContract,
-  useWaitForTransactionReceipt,
   useAccount,
+  useConfig,
 } from "wagmi";
+import { waitForTransactionReceipt } from "wagmi/actions";
 import { parseEther, formatEther } from "viem";
 import {
   EVENT_MGR_CONTRACT,
@@ -58,6 +60,7 @@ function chainEventToStore(ev: ChainEvent, id: bigint): Event {
 
 export function useContractStore() {
   const { address } = useAccount();
+  const config = useConfig();
 
   // ── Read all events ──────────────────────────────────────────────
   const { data: allEventsData, refetch: refetchEvents } = useReadContract({
@@ -85,6 +88,81 @@ export function useContractStore() {
   // combined hook below.
   const myTokenIds: bigint[] = (ownedTokenIds as bigint[] | undefined) ?? [];
 
+  // ── Per-token reads: eventId for each owned token ──────────────
+  const { data: tokenEventIds, refetch: refetchTokenEventIds } =
+    useReadContracts({
+      contracts: myTokenIds.map((id) => ({
+        address: TICKET_CONTRACT.address,
+        abi: TICKET_CONTRACT.abi,
+        functionName: "ticketToEventId",
+        args: [id],
+      })) as readonly {
+        address: `0x${string}`;
+        abi: unknown;
+        functionName: string;
+        args: readonly unknown[];
+      }[] as never,
+      query: { enabled: myTokenIds.length > 0 },
+    });
+
+  // ── Per-token reads: marketplace listing for each owned token ─────
+  const { data: tokenListings, refetch: refetchListings } = useReadContracts({
+    contracts: myTokenIds.map((id) => ({
+      address: MARKETPLACE_CONTRACT.address,
+      abi: MARKETPLACE_CONTRACT.abi,
+      functionName: "getListing",
+      args: [id],
+    })) as readonly {
+      address: `0x${string}`;
+      abi: unknown;
+      functionName: string;
+      args: readonly unknown[];
+    }[] as never,
+    query: { enabled: myTokenIds.length > 0 },
+  });
+
+  // ── Is the marketplace already approved-for-all by the user? ─────
+  const { data: isMarketApproved, refetch: refetchApproval } = useReadContract({
+    ...TICKET_CONTRACT,
+    functionName: "isApprovedForAll",
+    args: address ? [address, MARKETPLACE_CONTRACT.address] : undefined,
+    query: { enabled: !!address },
+  });
+
+  // ── Build enriched Ticket objects for the connected user ─────────
+  const myChainTickets: Ticket[] = myTokenIds.map((id, i) => {
+    const eventIdEntry = (
+      tokenEventIds as
+        | readonly { result?: unknown; status?: string }[]
+        | undefined
+    )?.[i];
+    const listingEntry = (
+      tokenListings as
+        | readonly { result?: unknown; status?: string }[]
+        | undefined
+    )?.[i];
+    const eventIdRaw = eventIdEntry?.result as bigint | undefined;
+    const listing = listingEntry?.result as
+      | readonly [`0x${string}`, bigint, boolean]
+      | undefined;
+    const eventId = eventIdRaw !== undefined ? eventIdRaw.toString() : "";
+    const isListed = listing?.[2] ?? false;
+    const priceWei = listing?.[1] ?? BigInt(0);
+    const priceEth = priceWei > BigInt(0) ? Number(formatEther(priceWei)) : 0;
+    return {
+      id: id.toString(),
+      eventId,
+      ownerId: address?.toLowerCase() ?? "",
+      ownerName: address ? address.slice(0, 6) + "…" + address.slice(-4) : "",
+      seatInfo: `NFT Token #${id}`,
+      price: priceEth,
+      originalPrice: priceEth,
+      forSale: isListed,
+      isUsed: false,
+      createdAt: new Date().toISOString(),
+    };
+  });
+
   // ── Write: createEvent ──────────────────────────────────────────
   const { writeContractAsync } = useWriteContract();
 
@@ -104,9 +182,11 @@ export function useContractStore() {
         functionName: "createEvent",
         args: [input.name, dateUnix, BigInt(input.totalTickets), priceWei],
       });
+      await waitForTransactionReceipt(config, { hash });
+      await refetchEvents();
       return hash;
     },
-    [writeContractAsync],
+    [writeContractAsync, config, refetchEvents],
   );
 
   // ── Write: buyPrimaryTicket ──────────────────────────────────────
@@ -118,29 +198,58 @@ export function useContractStore() {
         args: [BigInt(eventId)],
         value: parseEther(priceEth.toString()),
       });
+      // Wait for the tx to be mined, then refresh on-chain reads so
+      // the events list and the user's owned tokens both reflect the
+      // new mint.
+      await waitForTransactionReceipt(config, { hash });
+      await Promise.all([refetchEvents(), refetchOwned()]);
       return hash;
     },
-    [writeContractAsync],
+    [writeContractAsync, config, refetchEvents, refetchOwned],
   );
 
   // ── Write: listTicket (approve + list) ──────────────────────────
+  // ── Write: listTicket ───────────────────────────────────────────
+  // Uses setApprovalForAll once per wallet so subsequent listings
+  // require ONLY a single transaction. The optional onStep callback
+  // lets the UI report progress through the multi-step flow.
   const listTicket = useCallback(
-    async (tokenId: string, priceEth: number) => {
-      // Step 1: approve marketplace
-      await writeContractAsync({
-        ...TICKET_CONTRACT,
-        functionName: "approve",
-        args: [MARKETPLACE_CONTRACT.address, BigInt(tokenId)],
-      });
-      // Step 2: list
+    async (
+      tokenId: string,
+      priceEth: number,
+      onStep?: (msg: string) => void,
+    ) => {
+      // One-time approval for the marketplace operator.
+      if (!isMarketApproved) {
+        onStep?.("Approving marketplace (one-time)… confirm in wallet");
+        const approveHash = await writeContractAsync({
+          ...TICKET_CONTRACT,
+          functionName: "setApprovalForAll",
+          args: [MARKETPLACE_CONTRACT.address, true],
+        });
+        onStep?.("Waiting for approval to confirm on-chain…");
+        await waitForTransactionReceipt(config, { hash: approveHash });
+        await refetchApproval();
+      }
+      onStep?.("Listing ticket… confirm in wallet");
       const hash = await writeContractAsync({
         ...MARKETPLACE_CONTRACT,
         functionName: "listTicket",
         args: [BigInt(tokenId), parseEther(priceEth.toString())],
       });
+      onStep?.("Waiting for listing to confirm on-chain…");
+      await waitForTransactionReceipt(config, { hash });
+      await Promise.all([refetchOwned(), refetchListings()]);
       return hash;
     },
-    [writeContractAsync],
+    [
+      writeContractAsync,
+      config,
+      isMarketApproved,
+      refetchApproval,
+      refetchOwned,
+      refetchListings,
+    ],
   );
 
   // ── Write: cancelListing ─────────────────────────────────────────
@@ -151,9 +260,11 @@ export function useContractStore() {
         functionName: "cancelListing",
         args: [BigInt(tokenId)],
       });
+      await waitForTransactionReceipt(config, { hash });
+      await Promise.all([refetchOwned(), refetchListings()]);
       return hash;
     },
-    [writeContractAsync],
+    [writeContractAsync, config, refetchOwned, refetchListings],
   );
 
   // ── Write: buySecondaryTicket ────────────────────────────────────
@@ -165,16 +276,21 @@ export function useContractStore() {
         args: [BigInt(tokenId)],
         value: parseEther(priceEth.toString()),
       });
+      await waitForTransactionReceipt(config, { hash });
+      await Promise.all([refetchOwned(), refetchListings()]);
       return hash;
     },
-    [writeContractAsync],
+    [writeContractAsync, config, refetchOwned, refetchListings],
   );
 
   return {
     events,
     myTokenIds,
+    myChainTickets,
     refetchEvents,
     refetchOwned,
+    refetchTokenEventIds,
+    refetchListings,
     createEventOnChain,
     buyPrimaryTicket,
     listTicket,
@@ -182,5 +298,106 @@ export function useContractStore() {
     buySecondaryTicket,
     formatEther,
     parseEther,
+  };
+}
+
+// ============================================================================
+// useEventListings(eventId)
+// Returns the active marketplace listings (secondary resale tickets) for a
+// given event, plus a refetch fn. Implemented by enumerating every minted
+// token, reading its eventId + listing, and filtering down. Fine for the small
+// scale of this demo; for production, index via events / a subgraph instead.
+// ============================================================================
+export function useEventListings(eventId: string | undefined) {
+  const { address } = useAccount();
+
+  const { data: totalMintedData, refetch: refetchTotalMinted } =
+    useReadContract({
+      ...TICKET_CONTRACT,
+      functionName: "totalMinted",
+    });
+
+  const totalMinted = Number(
+    (totalMintedData as bigint | undefined) ?? BigInt(0),
+  );
+  const allTokenIds = Array.from({ length: totalMinted }, (_, i) => BigInt(i));
+
+  const { data: tokenEventIds, refetch: refetchTokenEventIds } =
+    useReadContracts({
+      contracts: allTokenIds.map((id) => ({
+        address: TICKET_CONTRACT.address,
+        abi: TICKET_CONTRACT.abi,
+        functionName: "ticketToEventId",
+        args: [id],
+      })) as readonly {
+        address: `0x${string}`;
+        abi: unknown;
+        functionName: string;
+        args: readonly unknown[];
+      }[] as never,
+      query: { enabled: totalMinted > 0 && !!eventId },
+    });
+
+  const { data: tokenListings, refetch: refetchTokenListings } =
+    useReadContracts({
+      contracts: allTokenIds.map((id) => ({
+        address: MARKETPLACE_CONTRACT.address,
+        abi: MARKETPLACE_CONTRACT.abi,
+        functionName: "getListing",
+        args: [id],
+      })) as readonly {
+        address: `0x${string}`;
+        abi: unknown;
+        functionName: string;
+        args: readonly unknown[];
+      }[] as never,
+      query: { enabled: totalMinted > 0 && !!eventId },
+    });
+
+  const listings: Ticket[] = (() => {
+    if (!eventId || totalMinted === 0) return [];
+    const evIds = tokenEventIds as readonly { result?: unknown }[] | undefined;
+    const lstgs = tokenListings as readonly { result?: unknown }[] | undefined;
+    if (!evIds || !lstgs) return [];
+
+    const out: Ticket[] = [];
+    for (let i = 0; i < totalMinted; i++) {
+      const eid = evIds[i]?.result as bigint | undefined;
+      const listing = lstgs[i]?.result as
+        | readonly [`0x${string}`, bigint, boolean]
+        | undefined;
+      if (eid === undefined || !listing) continue;
+      if (eid.toString() !== eventId) continue;
+      const [seller, priceWei, isListed] = listing;
+      if (!isListed) continue;
+      const priceEth = Number(formatEther(priceWei));
+      out.push({
+        id: i.toString(),
+        eventId: eid.toString(),
+        ownerId: seller.toLowerCase(),
+        ownerName: seller.slice(0, 6) + "…" + seller.slice(-4),
+        seatInfo: `NFT Token #${i}`,
+        price: priceEth,
+        originalPrice: priceEth,
+        forSale: true,
+        isUsed: false,
+        createdAt: new Date().toISOString(),
+      });
+    }
+    return out;
+  })();
+
+  const refetch = useCallback(async () => {
+    await Promise.all([
+      refetchTotalMinted(),
+      refetchTokenEventIds(),
+      refetchTokenListings(),
+    ]);
+  }, [refetchTotalMinted, refetchTokenEventIds, refetchTokenListings]);
+
+  return {
+    listings,
+    currentAddress: address?.toLowerCase() ?? "",
+    refetch,
   };
 }

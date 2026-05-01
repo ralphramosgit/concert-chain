@@ -15,7 +15,7 @@ import { useSession } from "../../_components/SessionProvider";
 import { TicketCard } from "../../_components/TicketCard";
 import { Modal } from "../../_components/Modal";
 import { useAccount } from "wagmi";
-import { useContractStore } from "@/lib/useContractStore";
+import { useContractStore, useEventListings } from "@/lib/useContractStore";
 
 export default function EventDetailPage() {
   const params = useParams<{ eventId: string }>();
@@ -23,7 +23,16 @@ export default function EventDetailPage() {
   const session = useSession();
   const { isConnected } = useAccount();
   const { events, ticketsForSale, buyTicket } = useStore();
-  const { buyPrimaryTicket } = useContractStore();
+  const { buyPrimaryTicket, buySecondaryTicket } = useContractStore();
+  const {
+    listings: secondaryListings,
+    currentAddress,
+    refetch: refetchSecondaryListings,
+  } = useEventListings(params.eventId);
+
+  // Only Fan accounts may purchase tickets. Managers can browse but
+  // never see a buy button.
+  const canBuy = session?.role === "FAN";
 
   const event = useMemo(
     () => events.find((e) => e.id === params.eventId),
@@ -58,14 +67,29 @@ export default function EventDetailPage() {
 
   async function confirmPurchase() {
     if (!session || !purchaseTicketId || !event) return;
+    if (!canBuy) {
+      setTxError("Only Fan accounts can purchase tickets.");
+      return;
+    }
     setPurchasing(true);
     setTxError("");
 
     if (isConnected) {
       try {
-        const priceEth = event.initialPrice ?? 0;
-        await buyPrimaryTicket(event.id, priceEth);
-        setPurchasedId("primary");
+        if (purchaseTicketId.startsWith("primary")) {
+          const priceEth = event.initialPrice ?? 0;
+          await buyPrimaryTicket(event.id, priceEth);
+          setPurchasedId("primary");
+        } else {
+          // Secondary purchase: purchaseTicketId is the tokenId.
+          const listing = secondaryListings.find(
+            (l) => l.id === purchaseTicketId,
+          );
+          if (!listing) throw new Error("Listing no longer available");
+          await buySecondaryTicket(listing.id, listing.price);
+          await refetchSecondaryListings();
+          setPurchasedId(listing.id);
+        }
         setPurchaseTicketId(null);
       } catch (err: unknown) {
         setTxError(err instanceof Error ? err.message : "Transaction failed");
@@ -120,49 +144,131 @@ export default function EventDetailPage() {
         </div>
       </header>
 
-      {/* ── On-chain: direct primary buy ── */}
+      {/* ── On-chain: render one card per remaining (un-minted) ticket ── */}
       {isConnected ? (
-        <div className="space-y-4">
-          <h2 className="text-xl font-semibold">Buy a Ticket</h2>
-          {purchasedId ? (
-            <div
-              className="cc-surface p-4 flex items-center gap-3"
-              style={{ borderColor: "rgba(56, 245, 177, 0.4)" }}
-            >
-              <span className="cc-badge cc-badge-success">Success</span>
-              <span className="text-sm">
-                NFT ticket minted to your wallet. Find it under{" "}
-                <Link href="/my-tickets" className="cc-link">
-                  My Tickets
-                </Link>
-                .
-              </span>
-            </div>
-          ) : (
-            <div className="cc-surface p-6 space-y-4">
+        (() => {
+          const total = event.totalTickets ?? 0;
+          const minted = event.ticketsMinted ?? 0;
+          const remaining = Math.max(total - minted, 0);
+          const resaleCount = secondaryListings.length;
+          const totalForSale = remaining + resaleCount;
+          return (
+            <div className="space-y-4">
               <div className="flex items-center justify-between">
-                <span style={{ color: "var(--cc-text-muted)" }}>Price</span>
-                <span className="text-2xl font-bold cc-neon-text">
-                  {event.initialPrice !== undefined
-                    ? `${event.initialPrice} ETH`
-                    : "See contract"}
+                <h2 className="text-xl font-semibold">Tickets for sale</h2>
+                <span className="cc-badge cc-badge-muted">
+                  {totalForSale} of {total} available
                 </span>
               </div>
+
+              {!canBuy && (
+                <div
+                  className="cc-surface p-4 text-sm"
+                  style={{ color: "var(--cc-text-muted)" }}
+                >
+                  Only Fan accounts can purchase tickets.
+                </div>
+              )}
+
+              {purchasedId && (
+                <div
+                  className="cc-surface p-4 flex items-center gap-3"
+                  style={{ borderColor: "rgba(56, 245, 177, 0.4)" }}
+                >
+                  <span className="cc-badge cc-badge-success">Success</span>
+                  <span className="text-sm">
+                    NFT ticket transferred to your wallet. Find it under{" "}
+                    <Link href="/my-tickets" className="cc-link">
+                      My Tickets
+                    </Link>
+                    .
+                  </span>
+                </div>
+              )}
+
+              {totalForSale === 0 ? (
+                <div
+                  className="cc-surface p-8 text-center text-sm"
+                  style={{ color: "var(--cc-text-muted)" }}
+                >
+                  No tickets currently for sale.
+                </div>
+              ) : (
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-5">
+                  {/* Primary (un-minted) tickets */}
+                  {Array.from({ length: remaining }).map((_, i) => {
+                    const slotNumber = minted + i + 1;
+                    const priceEth = event.initialPrice ?? 0;
+                    const primaryTicket = {
+                      id: `primary:${slotNumber}`,
+                      eventId: event.id,
+                      ownerId: "",
+                      ownerName: "",
+                      seatInfo: `Ticket #${slotNumber}`,
+                      price: priceEth,
+                      originalPrice: priceEth,
+                      forSale: true,
+                      isUsed: false,
+                      createdAt: new Date().toISOString(),
+                    };
+                    return (
+                      <TicketCard
+                        key={`primary-${slotNumber}`}
+                        ticket={primaryTicket}
+                        event={event}
+                        action={
+                          <button
+                            type="button"
+                            disabled={!canBuy}
+                            onClick={() =>
+                              setPurchaseTicketId(`primary:${slotNumber}`)
+                            }
+                            className="cc-btn cc-btn-primary w-full"
+                          >
+                            <ShoppingCart className="w-4 h-4" />
+                            {canBuy ? "Buy ticket" : "Fans only"}
+                          </button>
+                        }
+                      />
+                    );
+                  })}
+
+                  {/* Secondary (resale) listings */}
+                  {secondaryListings.map((t) => {
+                    const isOwn = t.ownerId === currentAddress;
+                    return (
+                      <TicketCard
+                        key={`resale-${t.id}`}
+                        ticket={t}
+                        event={event}
+                        action={
+                          <button
+                            type="button"
+                            disabled={isOwn || !canBuy}
+                            onClick={() => setPurchaseTicketId(t.id)}
+                            className="cc-btn cc-btn-primary w-full"
+                          >
+                            <ShoppingCart className="w-4 h-4" />
+                            {!canBuy
+                              ? "Fans only"
+                              : isOwn
+                                ? "You own this"
+                                : "Buy ticket"}
+                          </button>
+                        }
+                      />
+                    );
+                  })}
+                </div>
+              )}
               {txError && (
                 <p className="text-xs" style={{ color: "var(--cc-danger)" }}>
                   {txError}
                 </p>
               )}
-              <button
-                type="button"
-                onClick={() => setPurchaseTicketId("primary")}
-                className="cc-btn cc-btn-primary w-full"
-              >
-                <ShoppingCart className="w-4 h-4" /> Buy Ticket
-              </button>
             </div>
-          )}
-        </div>
+          );
+        })()
       ) : (
         /* ── Mock mode: ticket cards ── */
         <>
@@ -204,15 +310,20 @@ export default function EventDetailPage() {
                   <TicketCard
                     key={t.id}
                     ticket={t}
+                    event={event}
                     action={
                       <button
                         type="button"
-                        disabled={isOwn}
+                        disabled={isOwn || !canBuy}
                         onClick={() => setPurchaseTicketId(t.id)}
                         className="cc-btn cc-btn-primary w-full"
                       >
                         <ShoppingCart className="w-4 h-4" />
-                        {isOwn ? "You own this" : "Buy ticket"}
+                        {!canBuy
+                          ? "Fans only"
+                          : isOwn
+                            ? "You own this"
+                            : "Buy ticket"}
                       </button>
                     }
                   />
@@ -229,25 +340,96 @@ export default function EventDetailPage() {
         title="Confirm purchase"
       >
         <div className="space-y-4">
-          <div className="cc-surface p-4">
-            <div className="text-sm" style={{ color: "var(--cc-text-muted)" }}>
-              {event.name}
-            </div>
-            <div className="cc-divider !my-3" />
-            <div className="flex items-center justify-between">
-              <span
-                className="text-sm"
-                style={{ color: "var(--cc-text-muted)" }}
-              >
-                Total
-              </span>
-              <span className="text-2xl font-bold cc-neon-text">
-                {isConnected
-                  ? `${event.initialPrice ?? "?"} ETH`
-                  : `${tickets.find((t) => t.id === purchaseTicketId)?.price ?? "?"} ETH`}
-              </span>
-            </div>
-          </div>
+          {(() => {
+            // Derive the seat label and price for the modal preview based
+            // on whether this is a primary mint, a chain resale, or a
+            // mock-mode ticket.
+            let seatLabel = "—";
+            let priceLabel = "—";
+            let kindLabel: string | null = null;
+            if (purchaseTicketId) {
+              if (isConnected) {
+                if (purchaseTicketId.startsWith("primary:")) {
+                  const slot = purchaseTicketId.split(":")[1];
+                  seatLabel = `Ticket #${slot}`;
+                  priceLabel =
+                    event.initialPrice !== undefined
+                      ? `${event.initialPrice} ETH`
+                      : "—";
+                  kindLabel = "Primary";
+                } else {
+                  const l = secondaryListings.find(
+                    (x) => x.id === purchaseTicketId,
+                  );
+                  if (l) {
+                    seatLabel = l.seatInfo;
+                    priceLabel = `${l.price} ETH`;
+                    kindLabel = "Resale";
+                  }
+                }
+              } else {
+                const t = tickets.find((x) => x.id === purchaseTicketId);
+                if (t) {
+                  seatLabel = t.seatInfo;
+                  priceLabel = `${t.price} ETH`;
+                }
+              }
+            }
+            return (
+              <div className="cc-surface p-4 space-y-3">
+                <div className="flex items-start justify-between gap-2">
+                  <div>
+                    <div
+                      className="text-[0.65rem] uppercase tracking-wider"
+                      style={{ color: "var(--cc-text-dim)" }}
+                    >
+                      Event
+                    </div>
+                    <div className="text-base font-semibold leading-tight">
+                      {event.name}
+                    </div>
+                    <div
+                      className="flex items-center gap-1.5 mt-1 text-xs"
+                      style={{ color: "var(--cc-text-muted)" }}
+                    >
+                      <Calendar className="w-3 h-3" />
+                      {new Date(event.date).toLocaleString(undefined, {
+                        month: "short",
+                        day: "numeric",
+                        year: "numeric",
+                        hour: "numeric",
+                        minute: "2-digit",
+                      })}
+                    </div>
+                  </div>
+                  {kindLabel && (
+                    <span className="cc-badge cc-badge-muted">{kindLabel}</span>
+                  )}
+                </div>
+                <div className="cc-divider !my-1" />
+                <div className="flex items-center justify-between">
+                  <span
+                    className="text-xs uppercase tracking-wider"
+                    style={{ color: "var(--cc-text-dim)" }}
+                  >
+                    Seat
+                  </span>
+                  <span className="text-sm font-semibold">{seatLabel}</span>
+                </div>
+                <div className="flex items-center justify-between">
+                  <span
+                    className="text-sm"
+                    style={{ color: "var(--cc-text-muted)" }}
+                  >
+                    Total
+                  </span>
+                  <span className="text-2xl font-bold cc-neon-text">
+                    {priceLabel}
+                  </span>
+                </div>
+              </div>
+            );
+          })()}
           <p className="text-xs" style={{ color: "var(--cc-text-dim)" }}>
             Payment will be settled on-chain. Once confirmed, the ticket
             transfers to your wallet.

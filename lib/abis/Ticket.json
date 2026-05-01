@@ -45,6 +45,16 @@
   },
   {
     "type": "function",
+    "name": "isApprovedForAll",
+    "inputs": [
+      { "name": "owner", "type": "address" },
+      { "name": "operator", "type": "address" }
+    ],
+    "outputs": [{ "name": "", "type": "bool" }],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
     "name": "totalMinted",
     "inputs": [],
     "outputs": [{ "name": "", "type": "uint256" }],
