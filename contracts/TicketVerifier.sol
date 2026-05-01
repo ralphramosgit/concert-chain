@@ -1,43 +1,103 @@
 // SPDX-License-Identifier: MIT
-pragma solidity ^0.8.20;
+pragma solidity ^0.8.28;
 
-// ================================================
-// TicketVerifier.sol
-// Read-only utility contract for confirming a ticket is valid for an event.
-// Useful at the venue door / for UI badges.
-// ================================================
+import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
 
-import "./Ticket.sol";
-import "./EventManager.sol";
+import {EventManager} from "./EventManager.sol";
+import {Ticket} from "./Ticket.sol";
 
-contract TicketVerifier {
-    Ticket public immutable ticketContract;
+contract TicketVerifier is Ownable {
+    struct Verification {
+        bool valid;
+        bool checkedIn;
+        address owner;
+        address organizer;
+        uint256 eventId;
+        string reason;
+    }
+
+    Ticket public immutable ticket;
     EventManager public immutable eventManager;
 
-    constructor(address _ticketContractAddress, address _eventManagerAddress) {
-        ticketContract = Ticket(_ticketContractAddress);
-        eventManager = EventManager(_eventManagerAddress);
+    mapping(address account => bool authorized) public authorizedCheckers;
+
+    event CheckerAuthorizationUpdated(address indexed checker, bool authorized);
+    event TicketVerification(
+        uint256 indexed tokenId,
+        uint256 indexed eventId,
+        address indexed requester,
+        bool valid,
+        string reason
+    );
+    event TicketCheckIn(
+        uint256 indexed tokenId,
+        uint256 indexed eventId,
+        address indexed attendee,
+        address operator
+    );
+
+    error InvalidAddress();
+    error NotAuthorizedChecker(address account);
+    error InvalidTicket(uint256 tokenId, uint256 eventId);
+    error TicketAlreadyCheckedIn(uint256 tokenId);
+    error EventCancelled(uint256 eventId);
+
+    constructor(address ticketAddress, address eventManagerAddress, address initialOwner) Ownable(initialOwner) {
+        if (ticketAddress == address(0) || eventManagerAddress == address(0) || initialOwner == address(0)) {
+            revert InvalidAddress();
+        }
+
+        ticket = Ticket(ticketAddress);
+        eventManager = EventManager(eventManagerAddress);
+        authorizedCheckers[initialOwner] = true;
+
+        emit CheckerAuthorizationUpdated(initialOwner, true);
     }
 
-    /// Returns true if `ticketId` exists and was minted for `eventId`, and that event is real.
-    function verifyTicket(uint256 ticketId, uint256 eventId) external view returns (bool) {
-        if (!ticketContract.exists(ticketId)) return false;
-        if (ticketContract.ticketToEventId(ticketId) != eventId) return false;
-
-        EventManager.Event memory ev = eventManager.getEvent(eventId);
-        if (ev.organizer == address(0)) return false;
-        return true;
+    function setCheckerAuthorization(address checker, bool authorized) external onlyOwner {
+        if (checker == address(0)) revert InvalidAddress();
+        authorizedCheckers[checker] = authorized;
+        emit CheckerAuthorizationUpdated(checker, authorized);
     }
 
-    /// Convenience: returns ownership + validity in one call.
-    function ticketInfo(uint256 ticketId)
-        external
-        view
-        returns (bool exists_, address owner, uint256 eventId)
-    {
-        exists_ = ticketContract.exists(ticketId);
-        if (!exists_) return (false, address(0), 0);
-        owner = ticketContract.ownerOf(ticketId);
-        eventId = ticketContract.ticketToEventId(ticketId);
+    function verifyTicket(uint256 tokenId, uint256 eventId) public view returns (Verification memory result) {
+        (bool exists_, address owner, uint256 actualEventId,, bool checkedIn_) = ticket.ticketInfo(tokenId);
+        if (!exists_) {
+            return Verification(false, false, address(0), address(0), eventId, "TICKET_DOES_NOT_EXIST");
+        }
+
+        if (actualEventId != eventId) {
+            return Verification(false, checkedIn_, owner, address(0), actualEventId, "WRONG_EVENT");
+        }
+
+        EventManager.EventData memory eventData = eventManager.getEvent(eventId);
+        if (eventData.cancelled) {
+            return Verification(false, checkedIn_, owner, eventData.organizer, eventId, "EVENT_CANCELLED");
+        }
+
+        if (checkedIn_) {
+            return Verification(false, true, owner, eventData.organizer, eventId, "ALREADY_CHECKED_IN");
+        }
+
+        return Verification(true, false, owner, eventData.organizer, eventId, "VALID");
+    }
+
+    function verifyAndEmit(uint256 tokenId, uint256 eventId) external returns (Verification memory result) {
+        result = verifyTicket(tokenId, eventId);
+        emit TicketVerification(tokenId, eventId, msg.sender, result.valid, result.reason);
+    }
+
+    function checkIn(uint256 tokenId, uint256 eventId) external {
+        Verification memory result = verifyTicket(tokenId, eventId);
+
+        if (!result.valid) revert InvalidTicket(tokenId, eventId);
+        if (result.checkedIn) revert TicketAlreadyCheckedIn(tokenId);
+        if (!authorizedCheckers[msg.sender] && msg.sender != result.organizer && msg.sender != owner()) {
+            revert NotAuthorizedChecker(msg.sender);
+        }
+
+        ticket.markCheckedIn(tokenId, eventId, msg.sender);
+
+        emit TicketCheckIn(tokenId, eventId, result.owner, msg.sender);
     }
 }
