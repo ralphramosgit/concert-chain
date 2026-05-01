@@ -14,33 +14,12 @@ export default function MyTicketsPage() {
   const session = useSession();
   const { isConnected } = useAccount();
   const { events, ticketsOwnedBy, updateTicket } = useStore();
-  const {
-    myTokenIds,
-    events: chainEvents,
-    listTicket,
-    cancelListing,
-  } = useContractStore();
+  const { myChainTickets, listTicket, cancelListing } = useContractStore();
 
   // ── Chain mode ────────────────────────────────────────────────────
-  // Build lightweight Ticket objects from owned token IDs.
-  // eventId is stored on-chain as ticketToEventId; we show "Event #N".
-  const chainTickets: Ticket[] = useMemo(
-    () =>
-      myTokenIds.map((id) => ({
-        id: id.toString(),
-        // map token → event via chainEvents order (index = eventId)
-        eventId: id.toString(),
-        ownerId: "",
-        ownerName: "",
-        seatInfo: `NFT Token #${id}`,
-        price: 0,
-        originalPrice: 0,
-        forSale: false,
-        isUsed: false,
-        createdAt: new Date().toISOString(),
-      })),
-    [myTokenIds],
-  );
+  // Use enriched tickets from useContractStore which include the real
+  // marketplace listing state (forSale + price) for each owned token.
+  const chainTickets: Ticket[] = myChainTickets;
 
   // ── Mock mode ─────────────────────────────────────────────────────
   const myMockTickets = useMemo(
@@ -55,9 +34,30 @@ export default function MyTicketsPage() {
     [events],
   );
 
-  // For chain mode: group all tokens under a single "On-Chain Tickets" section
+  // Must be computed before any conditional return (React hooks rules).
+  const grouped = useMemo(() => {
+    const m = new Map<string, Ticket[]>();
+    for (const t of activeTickets) {
+      if (!m.has(t.eventId)) m.set(t.eventId, []);
+      m.get(t.eventId)!.push(t);
+    }
+    return Array.from(m.entries());
+  }, [activeTickets]);
+
   const [editing, setEditing] = useState<Ticket | null>(null);
   const [txStatus, setTxStatus] = useState("");
+
+  // Belt-and-suspenders role guard (middleware already enforces this).
+  if (session && session.role !== "FAN") {
+    return (
+      <div className="cc-surface p-10 text-center">
+        <h2 className="text-lg font-semibold">Fans only</h2>
+        <p className="text-sm mt-2" style={{ color: "var(--cc-text-muted)" }}>
+          My Tickets is available to Fan accounts only.
+        </p>
+      </div>
+    );
+  }
 
   if (isConnected) {
     return (
@@ -89,48 +89,42 @@ export default function MyTicketsPage() {
           </div>
         ) : (
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-5">
-            {chainTickets.map((t) => {
-              // Find the matching on-chain event name if available
-              const chainEvent = chainEvents[Number(t.id)] ?? null;
-              return (
-                <TicketCard
-                  key={t.id}
-                  ticket={{
-                    ...t,
-                    seatInfo: chainEvent
-                      ? `${chainEvent.name} — Token #${t.id}`
-                      : t.seatInfo,
-                  }}
-                  action={
-                    <button
-                      type="button"
-                      onClick={() => setEditing(t)}
-                      className="cc-btn cc-btn-ghost w-full"
-                    >
-                      <Pencil className="w-4 h-4" /> Manage listing
-                    </button>
-                  }
-                />
-              );
-            })}
+            {chainTickets.map((t) => (
+              <TicketCard
+                key={t.id}
+                ticket={t}
+                event={mockEventById[t.eventId] ?? null}
+                action={
+                  <button
+                    type="button"
+                    onClick={() => setEditing(t)}
+                    className="cc-btn cc-btn-ghost w-full"
+                  >
+                    <Pencil className="w-4 h-4" /> Manage listing
+                  </button>
+                }
+              />
+            ))}
           </div>
         )}
 
         <ChainListingModal
+          key={editing?.id ?? "none"}
           ticket={editing}
           onClose={() => {
             setEditing(null);
             setTxStatus("");
           }}
           onList={async (tokenId, priceEth) => {
-            setTxStatus("Waiting for MetaMask…");
-            await listTicket(tokenId, priceEth);
-            setTxStatus("Listed!");
+            await listTicket(tokenId, priceEth, setTxStatus);
+            setTxStatus("");
+            setEditing(null);
           }}
           onCancel={async (tokenId) => {
-            setTxStatus("Waiting for MetaMask…");
+            setTxStatus("Cancelling listing… confirm in wallet");
             await cancelListing(tokenId);
-            setTxStatus("Listing cancelled.");
+            setTxStatus("");
+            setEditing(null);
           }}
           txStatus={txStatus}
         />
@@ -139,15 +133,6 @@ export default function MyTicketsPage() {
   }
 
   // ── Mock / no-wallet mode ─────────────────────────────────────────
-  const grouped = useMemo(() => {
-    const m = new Map<string, Ticket[]>();
-    for (const t of activeTickets) {
-      if (!m.has(t.eventId)) m.set(t.eventId, []);
-      m.get(t.eventId)!.push(t);
-    }
-    return Array.from(m.entries());
-  }, [activeTickets]);
-
   return (
     <div>
       <div className="mb-8">
@@ -193,6 +178,7 @@ export default function MyTicketsPage() {
                     <TicketCard
                       key={t.id}
                       ticket={t}
+                      event={ev ?? null}
                       action={
                         <button
                           type="button"
@@ -238,34 +224,33 @@ function ChainListingModal({
   onCancel: (tokenId: string) => Promise<void>;
   txStatus: string;
 }) {
-  const [price, setPrice] = useState("0.01");
+  const [price, setPrice] = useState(
+    ticket && ticket.price > 0 ? String(ticket.price) : "0.01",
+  );
+  const [forSale, setForSale] = useState(ticket?.forSale ?? false);
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState("");
 
-  async function handleList() {
-    const p = Number(price);
-    if (!Number.isFinite(p) || p <= 0) {
-      setErr("Enter a valid price in ETH.");
-      return;
-    }
+  async function handleSave() {
     if (!ticket) return;
-    setBusy(true);
     setErr("");
-    try {
-      await onList(ticket.id, p);
-    } catch (e: unknown) {
-      setErr(e instanceof Error ? e.message : "Transaction failed");
-    } finally {
-      setBusy(false);
-    }
-  }
-
-  async function handleCancel() {
-    if (!ticket) return;
     setBusy(true);
-    setErr("");
     try {
-      await onCancel(ticket.id);
+      if (forSale) {
+        const p = Number(price);
+        if (!Number.isFinite(p) || p <= 0) {
+          setErr("Enter a valid price in ETH.");
+          setBusy(false);
+          return;
+        }
+        await onList(ticket.id, p);
+      } else if (ticket.forSale) {
+        // Toggling off an already-listed ticket → cancel listing.
+        await onCancel(ticket.id);
+      } else {
+        // Nothing to do.
+        onClose();
+      }
     } catch (e: unknown) {
       setErr(e instanceof Error ? e.message : "Transaction failed");
     } finally {
@@ -282,6 +267,30 @@ function ChainListingModal({
             <div className="font-semibold">{ticket.seatInfo}</div>
           </div>
 
+          <label className="flex items-center justify-between gap-3 cursor-pointer select-none cc-surface p-3">
+            <span className="text-sm font-medium">For sale</span>
+            <span
+              className="relative inline-flex w-11 h-6 rounded-full transition-colors"
+              style={{
+                background: forSale
+                  ? "var(--cc-neon)"
+                  : "rgba(255,255,255,0.12)",
+                border: "1px solid var(--cc-border-strong)",
+              }}
+            >
+              <input
+                type="checkbox"
+                checked={forSale}
+                onChange={(e) => setForSale(e.target.checked)}
+                className="sr-only"
+              />
+              <span
+                className="absolute top-0.5 w-4 h-4 rounded-full bg-white transition-all"
+                style={{ left: forSale ? "calc(100% - 1.125rem)" : "0.125rem" }}
+              />
+            </span>
+          </label>
+
           <div>
             <label htmlFor="chain-price" className="cc-label">
               Listing price (ETH)
@@ -294,7 +303,16 @@ function ChainListingModal({
               value={price}
               onChange={(e) => setPrice(e.target.value)}
               className="cc-input"
+              disabled={!forSale}
             />
+            {!forSale && (
+              <p
+                className="text-[0.7rem] mt-1"
+                style={{ color: "var(--cc-text-dim)" }}
+              >
+                Enable &ldquo;For sale&rdquo; above to set a price.
+              </p>
+            )}
           </div>
 
           {err && (
@@ -311,21 +329,20 @@ function ChainListingModal({
           <div className="flex gap-2">
             <button
               type="button"
-              onClick={handleCancel}
+              onClick={onClose}
               disabled={busy}
               className="cc-btn cc-btn-ghost flex-1"
             >
-              {busy ? <Loader2 className="w-4 h-4 animate-spin" /> : null}
-              Cancel listing
+              Close
             </button>
             <button
               type="button"
-              onClick={handleList}
+              onClick={handleSave}
               disabled={busy}
               className="cc-btn cc-btn-primary flex-1"
             >
               {busy ? <Loader2 className="w-4 h-4 animate-spin" /> : null}
-              List for sale
+              Save
             </button>
           </div>
         </div>
@@ -377,22 +394,45 @@ function EditTicketModal({
             <input
               id="price"
               type="number"
-              min="1"
-              step="1"
+              min="0.0001"
+              step="0.01"
               value={price}
               onChange={(e) => setPrice(e.target.value)}
               className="cc-input"
+              disabled={!forSale}
             />
+            {!forSale && (
+              <p
+                className="text-[0.7rem] mt-1"
+                style={{ color: "var(--cc-text-dim)" }}
+              >
+                Enable &ldquo;For sale&rdquo; below to set a price.
+              </p>
+            )}
           </div>
 
-          <label className="flex items-center gap-3 cursor-pointer select-none">
-            <input
-              type="checkbox"
-              checked={forSale}
-              onChange={(e) => setForSale(e.target.checked)}
-              className="w-4 h-4 accent-[var(--cc-neon)]"
-            />
-            <span className="text-sm">List this ticket for sale</span>
+          <label className="flex items-center justify-between gap-3 cursor-pointer select-none cc-surface p-3">
+            <span className="text-sm font-medium">For sale</span>
+            <span
+              className="relative inline-flex w-11 h-6 rounded-full transition-colors"
+              style={{
+                background: forSale
+                  ? "var(--cc-neon)"
+                  : "rgba(255,255,255,0.12)",
+                border: "1px solid var(--cc-border-strong)",
+              }}
+            >
+              <input
+                type="checkbox"
+                checked={forSale}
+                onChange={(e) => setForSale(e.target.checked)}
+                className="sr-only"
+              />
+              <span
+                className="absolute top-0.5 w-4 h-4 rounded-full bg-white transition-all"
+                style={{ left: forSale ? "calc(100% - 1.125rem)" : "0.125rem" }}
+              />
+            </span>
           </label>
 
           <div className="flex gap-2">

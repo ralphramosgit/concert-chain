@@ -20,9 +20,19 @@ export function EventCard({
   event: Event;
   tickets: Ticket[];
 }) {
-  const forSale = tickets.filter((t) => t.forSale && !t.isUsed).length;
-  const minPrice =
-    forSale > 0
+  // On-chain events carry totalTickets / ticketsMinted / initialPrice.
+  // Mock events rely on the tickets array.
+  const isChain = event.totalTickets !== undefined;
+
+  const forSale = isChain
+    ? (event.totalTickets ?? 0) - (event.ticketsMinted ?? 0)
+    : tickets.filter((t) => t.forSale && !t.isUsed).length;
+
+  const minPrice = isChain
+    ? forSale > 0
+      ? (event.initialPrice ?? null)
+      : null
+    : forSale > 0
       ? Math.min(
           ...tickets.filter((t) => t.forSale && !t.isUsed).map((t) => t.price),
         )
@@ -39,7 +49,7 @@ export function EventCard({
         </h3>
         <span className="cc-badge shrink-0">
           <TicketCheck className="w-3 h-3" />
-          {forSale} for sale
+          {isChain ? `${forSale} left` : `${forSale} for sale`}
         </span>
       </div>
 
@@ -69,7 +79,11 @@ export function EventCard({
             From
           </div>
           <div className="font-bold cc-neon-text">
-            {minPrice !== null ? `${minPrice} ETH` : "Sold out"}
+            {minPrice !== null
+              ? `${minPrice} ETH`
+              : forSale === 0
+                ? "Sold out"
+                : "Free"}
           </div>
         </div>
         <span className="cc-btn cc-btn-ghost !py-2 !px-3 text-sm">
