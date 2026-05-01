@@ -1,0 +1,23 @@
+[
+  {
+    "type": "function",
+    "name": "verifyTicket",
+    "inputs": [
+      { "name": "ticketId", "type": "uint256" },
+      { "name": "eventId", "type": "uint256" }
+    ],
+    "outputs": [{ "name": "", "type": "bool" }],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "ticketInfo",
+    "inputs": [{ "name": "ticketId", "type": "uint256" }],
+    "outputs": [
+      { "name": "exists_", "type": "bool" },
+      { "name": "owner", "type": "address" },
+      { "name": "eventId", "type": "uint256" }
+    ],
+    "stateMutability": "view"
+  }
+]

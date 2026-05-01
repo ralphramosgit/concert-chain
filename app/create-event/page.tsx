@@ -5,6 +5,8 @@ import { useRouter } from "next/navigation";
 import { Calendar, Loader2, Sparkles } from "lucide-react";
 import { useStore } from "../_components/StoreProvider";
 import { useSession } from "../_components/SessionProvider";
+import { useAccount } from "wagmi";
+import { useContractStore } from "@/lib/useContractStore";
 
 type Errors = Partial<
   Record<
@@ -17,14 +19,17 @@ export default function CreateEventPage() {
   const router = useRouter();
   const session = useSession();
   const { createEvent } = useStore();
+  const { isConnected } = useAccount();
+  const { createEventOnChain } = useContractStore();
 
   const [name, setName] = useState("");
   const [description, setDescription] = useState("");
   const [date, setDate] = useState("");
   const [ticketCount, setTicketCount] = useState("100");
-  const [ticketPrice, setTicketPrice] = useState("50");
+  const [ticketPrice, setTicketPrice] = useState("0.01");
   const [errors, setErrors] = useState<Errors>({});
   const [submitting, setSubmitting] = useState(false);
+  const [txStatus, setTxStatus] = useState("");
 
   function validate(): Errors {
     const e: Errors = {};
@@ -51,7 +56,30 @@ export default function CreateEventPage() {
     if (Object.keys(errs).length) return;
 
     setSubmitting(true);
-    await new Promise((r) => setTimeout(r, 600)); // simulate chain mint
+
+    if (isConnected) {
+      try {
+        setTxStatus("Waiting for MetaMask confirmation…");
+        await createEventOnChain({
+          name: name.trim(),
+          date: new Date(date).toISOString(),
+          totalTickets: Number(ticketCount),
+          initialPrice: Number(ticketPrice),
+        });
+        setTxStatus("Transaction submitted! Redirecting…");
+        router.push("/events");
+      } catch (err: unknown) {
+        setTxStatus(
+          "Transaction failed: " +
+            (err instanceof Error ? err.message : String(err)),
+        );
+        setSubmitting(false);
+      }
+      return;
+    }
+
+    // Mock fallback (no wallet connected)
+    await new Promise((r) => setTimeout(r, 600));
     const ev = createEvent({
       name: name.trim(),
       description: description.trim(),
@@ -202,9 +230,14 @@ export default function CreateEventPage() {
             ) : (
               <Sparkles className="w-4 h-4" />
             )}
-            {submitting ? "Minting event..." : "Create event"}
+            {submitting ? txStatus || "Waiting for wallet…" : "Create event"}
           </button>
         </div>
+        {txStatus && (
+          <p className="text-sm mt-2" style={{ color: "var(--cc-text-muted)" }}>
+            {txStatus}
+          </p>
+        )}
       </form>
     </div>
   );

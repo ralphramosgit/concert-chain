@@ -4,6 +4,7 @@ import "./globals.css";
 import { Navbar } from "./_components/Navbar";
 import { StoreProvider } from "./_components/StoreProvider";
 import { SessionProvider } from "./_components/SessionProvider";
+import { Web3Provider } from "./_components/Web3Provider";
 import { getSession } from "@/lib/session";
 
 const geistSans = Geist({ variable: "--font-geist-sans", subsets: ["latin"] });
@@ -27,14 +28,16 @@ export default async function RootLayout({
       className={`${geistSans.variable} ${geistMono.variable} h-full antialiased`}
     >
       <body className="min-h-full flex flex-col">
-        <SessionProvider session={session}>
-          <StoreProvider>
-            <Navbar session={session} />
-            <main className="flex-1 w-full max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-              {children}
-            </main>
-          </StoreProvider>
-        </SessionProvider>
+        <Web3Provider>
+          <SessionProvider session={session}>
+            <StoreProvider>
+              <Navbar session={session} />
+              <main className="flex-1 w-full max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+                {children}
+              </main>
+            </StoreProvider>
+          </SessionProvider>
+        </Web3Provider>
       </body>
     </html>
   );

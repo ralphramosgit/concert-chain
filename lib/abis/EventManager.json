@@ -1,0 +1,86 @@
+[
+  {
+    "type": "function",
+    "name": "createEvent",
+    "inputs": [
+      { "name": "name", "type": "string" },
+      { "name": "date", "type": "uint256" },
+      { "name": "totalTickets", "type": "uint256" },
+      { "name": "initialPrice", "type": "uint256" }
+    ],
+    "outputs": [{ "name": "", "type": "uint256" }],
+    "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
+    "name": "buyPrimaryTicket",
+    "inputs": [{ "name": "eventId", "type": "uint256" }],
+    "outputs": [],
+    "stateMutability": "payable"
+  },
+  {
+    "type": "function",
+    "name": "getAllEvents",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "tuple[]",
+        "components": [
+          { "name": "name", "type": "string" },
+          { "name": "date", "type": "uint256" },
+          { "name": "totalTickets", "type": "uint256" },
+          { "name": "ticketsMinted", "type": "uint256" },
+          { "name": "initialPrice", "type": "uint256" },
+          { "name": "organizer", "type": "address" }
+        ]
+      },
+      { "name": "", "type": "uint256[]" }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "getEvent",
+    "inputs": [{ "name": "eventId", "type": "uint256" }],
+    "outputs": [
+      {
+        "name": "",
+        "type": "tuple",
+        "components": [
+          { "name": "name", "type": "string" },
+          { "name": "date", "type": "uint256" },
+          { "name": "totalTickets", "type": "uint256" },
+          { "name": "ticketsMinted", "type": "uint256" },
+          { "name": "initialPrice", "type": "uint256" },
+          { "name": "organizer", "type": "address" }
+        ]
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "event",
+    "name": "EventCreated",
+    "inputs": [
+      { "name": "eventId", "type": "uint256", "indexed": true },
+      { "name": "organizer", "type": "address", "indexed": true },
+      { "name": "name", "type": "string", "indexed": false },
+      { "name": "date", "type": "uint256", "indexed": false },
+      { "name": "totalTickets", "type": "uint256", "indexed": false },
+      { "name": "initialPrice", "type": "uint256", "indexed": false }
+    ],
+    "anonymous": false
+  },
+  {
+    "type": "event",
+    "name": "PrimaryTicketSold",
+    "inputs": [
+      { "name": "eventId", "type": "uint256", "indexed": true },
+      { "name": "tokenId", "type": "uint256", "indexed": true },
+      { "name": "buyer", "type": "address", "indexed": true },
+      { "name": "pricePaid", "type": "uint256", "indexed": false }
+    ],
+    "anonymous": false
+  }
+]

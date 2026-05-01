@@ -1,0 +1,101 @@
+[
+  {
+    "type": "function",
+    "name": "mint",
+    "inputs": [
+      { "name": "to", "type": "address" },
+      { "name": "eventId", "type": "uint256" }
+    ],
+    "outputs": [{ "name": "", "type": "uint256" }],
+    "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
+    "name": "tokensOfOwner",
+    "inputs": [{ "name": "owner", "type": "address" }],
+    "outputs": [{ "name": "", "type": "uint256[]" }],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "exists",
+    "inputs": [{ "name": "tokenId", "type": "uint256" }],
+    "outputs": [{ "name": "", "type": "bool" }],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "approve",
+    "inputs": [
+      { "name": "to", "type": "address" },
+      { "name": "tokenId", "type": "uint256" }
+    ],
+    "outputs": [],
+    "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
+    "name": "setApprovalForAll",
+    "inputs": [
+      { "name": "operator", "type": "address" },
+      { "name": "approved", "type": "bool" }
+    ],
+    "outputs": [],
+    "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
+    "name": "totalMinted",
+    "inputs": [],
+    "outputs": [{ "name": "", "type": "uint256" }],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "ticketToEventId",
+    "inputs": [{ "name": "", "type": "uint256" }],
+    "outputs": [{ "name": "", "type": "uint256" }],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "ownerOf",
+    "inputs": [{ "name": "tokenId", "type": "uint256" }],
+    "outputs": [{ "name": "", "type": "address" }],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "balanceOf",
+    "inputs": [{ "name": "owner", "type": "address" }],
+    "outputs": [{ "name": "", "type": "uint256" }],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "transferOwnership",
+    "inputs": [{ "name": "newOwner", "type": "address" }],
+    "outputs": [],
+    "stateMutability": "nonpayable"
+  },
+  {
+    "type": "event",
+    "name": "TicketMinted",
+    "inputs": [
+      { "name": "tokenId", "type": "uint256", "indexed": true },
+      { "name": "to", "type": "address", "indexed": true },
+      { "name": "eventId", "type": "uint256", "indexed": false }
+    ],
+    "anonymous": false
+  },
+  {
+    "type": "event",
+    "name": "Transfer",
+    "inputs": [
+      { "name": "from", "type": "address", "indexed": true },
+      { "name": "to", "type": "address", "indexed": true },
+      { "name": "tokenId", "type": "uint256", "indexed": true }
+    ],
+    "anonymous": false
+  }
+]
